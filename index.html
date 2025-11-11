@@ -1154,53 +1154,93 @@
 
             const NS = 'sadan-portfolio';
             const KEY = 'visitors';
-            const HIT = `https://api.countapi.xyz/hit/${NS}/${KEY}`;
-            const GET = `https://api.countapi.xyz/get/${NS}/${KEY}`;
-            const SESSION_FLAG = 'vp_hasVisited'; // sessionStorage flag
+            const API1 = 'https://api.countapi.xyz';
+            const API2 = 'https://countapi.xyz'; // fallback domain
+            const SESSION_FLAG = 'vp_hasVisited';     // per-tab session
+            const LAST_KEY = 'vc_lastCount';          // last known total (for refresh/offline)
+            const LOCAL_TOTAL = 'visitor_fallback_total'; // local fallback accumulator
 
-            const set = v => el.textContent = v;
+            const set = v => el.textContent = Number(v).toLocaleString();
+            const setText = t => el.textContent = t;
 
-            async function getCurrent() {
-              try {
-                const r = await fetch(GET, { cache: 'no-store' });
-                if (!r.ok) throw 0;
-                const d = await r.json();
-                if (typeof d.value === 'number') set(d.value.toLocaleString());
-                else throw 0;
-              } catch {
-                set('---');
+            const hitUrl = base => `${base}/hit/${NS}/${KEY}`;
+            const getUrl = base => `${base}/get/${NS}/${KEY}`;
+            const createUrl = base => `${base}/create?namespace=${NS}&key=${KEY}&value=0`;
+
+            const timeoutFetch = (url, opts = {}, ms = 2000) =>
+              Promise.race([
+                fetch(url, opts),
+                new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms)),
+              ]);
+
+            async function tryBoth(doFetch) {
+              try { return await doFetch(API1); } catch (e1) {
+                try { return await doFetch(API2); } catch (e2) { throw e2; }
               }
             }
 
-            async function firstVisitIncrement() {
+            function showLastCached() {
+              const last = localStorage.getItem(LAST_KEY);
+              if (last && !isNaN(last)) set(last);
+              else setText('0');
+            }
+
+            async function getCurrent() {
+              // Show something immediately
+              showLastCached();
               try {
-                const r = await fetch(HIT, { cache: 'no-store' });
+                const r = await tryBoth(base => timeoutFetch(getUrl(base), { cache: 'no-store' }));
                 if (!r.ok) throw 0;
                 const d = await r.json();
                 if (typeof d.value === 'number') {
-                  set(d.value.toLocaleString());
-                  return;
+                  localStorage.setItem(LAST_KEY, String(d.value));
+                  set(d.value);
+                  return true;
                 }
-                throw 0;
-              } catch {
-                // fallback local (only first time)
+              } catch { }
+              return false;
+            }
+
+            async function ensureKey() {
+              try {
+                const g = await tryBoth(base => timeoutFetch(getUrl(base), { cache: 'no-store' }));
+                if (g.ok) return true;
+                await tryBoth(base => timeoutFetch(createUrl(base)));
+                return true;
+              } catch { return false; }
+            }
+
+            async function firstVisitIncrement() {
+              // Try remote first
+              if (await ensureKey()) {
                 try {
-                  const lk = 'visitor_fallback_total';
-                  let v = parseInt(localStorage.getItem(lk) || '0', 10) + 1;
-                  localStorage.setItem(lk, v);
-                  set(v.toLocaleString() + '');
-                } catch {
-                  set('---');
-                }
+                  const r = await tryBoth(base => timeoutFetch(hitUrl(base), { cache: 'no-store' }));
+                  if (!r.ok) throw 0;
+                  const d = await r.json();
+                  if (typeof d.value === 'number') {
+                    localStorage.setItem(LAST_KEY, String(d.value));
+                    set(d.value);
+                    return;
+                  }
+                } catch { }
               }
+              // Local fallback if remote failed
+              let v = parseInt(localStorage.getItem(LOCAL_TOTAL) || '0', 10);
+              v = Number.isFinite(v) ? v + 1 : 1;
+              localStorage.setItem(LOCAL_TOTAL, String(v));
+              localStorage.setItem(LAST_KEY, String(v));
+              set(v);
             }
 
             if (!sessionStorage.getItem(SESSION_FLAG)) {
-              sessionStorage.setItem(SESSION_FLAG, '1');
+              sessionStorage.setItem(SESSION_FLAG, '1');    // only once per tab session
               await firstVisitIncrement();
             } else {
-              await getCurrent();
+              await getCurrent();                           // refresh: show cached, then try update
             }
+
+            // When back online, try to refresh the displayed value
+            window.addEventListener('online', () => { getCurrent(); });
           })();
         </script>
 

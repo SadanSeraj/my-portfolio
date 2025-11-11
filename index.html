@@ -1148,16 +1148,60 @@
         </div>
 
         <script>
-          async function updateVisitorCount() {
-            try {
-              const response = await fetch('https://api.countapi.xyz/hit/sadan-portfolio/visitors');
-              const data = await response.json();
-              document.getElementById('visitorCount').textContent = data.value.toLocaleString();
-            } catch (error) {
-              document.getElementById('visitorCount').textContent = '---';
+          (async function visitorCounter() {
+            const el = document.getElementById('visitorCount');
+            if (!el) return;
+
+            const NS = 'sadan-portfolio';
+            const KEY = 'visitors';
+            const HIT = `https://api.countapi.xyz/hit/${NS}/${KEY}`;
+            const GET = `https://api.countapi.xyz/get/${NS}/${KEY}`;
+            const SESSION_FLAG = 'vp_hasVisited'; // sessionStorage flag
+
+            const set = v => el.textContent = v;
+
+            async function getCurrent() {
+              try {
+                const r = await fetch(GET, { cache: 'no-store' });
+                if (!r.ok) throw 0;
+                const d = await r.json();
+                if (typeof d.value === 'number') set(d.value.toLocaleString());
+                else throw 0;
+              } catch {
+                set('---');
+              }
             }
-          }
-          updateVisitorCount();
+
+            async function firstVisitIncrement() {
+              try {
+                const r = await fetch(HIT, { cache: 'no-store' });
+                if (!r.ok) throw 0;
+                const d = await r.json();
+                if (typeof d.value === 'number') {
+                  set(d.value.toLocaleString());
+                  return;
+                }
+                throw 0;
+              } catch {
+                // fallback local (only first time)
+                try {
+                  const lk = 'visitor_fallback_total';
+                  let v = parseInt(localStorage.getItem(lk) || '0', 10) + 1;
+                  localStorage.setItem(lk, v);
+                  set(v.toLocaleString() + '');
+                } catch {
+                  set('---');
+                }
+              }
+            }
+
+            if (!sessionStorage.getItem(SESSION_FLAG)) {
+              sessionStorage.setItem(SESSION_FLAG, '1');
+              await firstVisitIncrement();
+            } else {
+              await getCurrent();
+            }
+          })();
         </script>
 
       </div>

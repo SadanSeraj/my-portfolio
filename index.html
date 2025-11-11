@@ -1044,6 +1044,11 @@
             </div>
 
             <div class="form-field">
+              <input type="email" id="email" name="email" placeholder=" " required>
+              <label for="email">Email</label>
+            </div>
+
+            <div class="form-field">
               <textarea id="message" name="message" placeholder=" " required></textarea>
               <label for="message">Message</label>
             </div>
@@ -1060,6 +1065,7 @@
 
             // Get form values
             const name = document.getElementById('name').value;
+            const email = document.getElementById('email').value;
             const message = document.getElementById('message').value;
 
             // Create email body with proper formatting
